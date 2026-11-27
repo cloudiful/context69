@@ -9,6 +9,7 @@ publish = false
 anyhow.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
+cloudiful-pagination.workspace = true
 context69-contracts-core.workspace = true
 context69-contracts-search.workspace = true
 redis = { workspace = true, features = ["tokio-comp", "connection-manager"] }
@@ -21,5 +22,6 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+context69-contracts-mcp.workspace = true
 futures = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

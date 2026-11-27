@@ -69,7 +69,8 @@ use context69_contracts_search::{SearchHit, SearchRequest, SearchResponse};
 use tracing::info;
 
 use super::search_cursor::{
-    CursorContext, DateCursor, MAX_DATE_WINDOWS, encode_date_cursor, validate_date_cursor,
+    CursorContext, DateCursor, DateCursorState, MAX_DATE_WINDOWS, cursor_context_mismatch_error,
+    date_cursor_binding, encode_date_cursor, validate_cursor_payload_limit, validate_date_cursor,
 };
 use crate::{
     DateBound, DateWindowPage, DateWindowQuery, SearchCache, SearchDatePointHit,
@@ -303,19 +304,19 @@ pub async fn run_date_search(
     // silently widen the replayed range.
     let mut before: Option<i64> = incoming
         .as_ref()
-        .and_then(|d| d.before)
+        .and_then(|d| d.state.before)
         .or(snapshot.upper_ts);
-    let mut boundary_ts: Option<i64> = incoming.as_ref().and_then(|d| d.boundary_ts);
+    let mut boundary_ts: Option<i64> = incoming.as_ref().and_then(|d| d.state.boundary_ts);
     // The Qdrant-side `next_page_offset` carried by the cursor. `None`
     // means either this is a fresh first page or the previous request
     // fully drained the boundary. The pipeline threads the offset
     // through every per-timestamp fetch so the Qdrant return order
     // continues exactly after the last emitted record.
-    let mut boundary_offset: Option<uuid::Uuid> = incoming.as_ref().and_then(|d| d.offset);
+    let mut boundary_offset: Option<uuid::Uuid> = incoming.as_ref().and_then(|d| d.state.offset);
 
     let upper = incoming
         .as_ref()
-        .and_then(|d| d.upper)
+        .and_then(|d| d.state.upper)
         .or(snapshot.upper_ts);
 
     let vector = embed_once(embedding, &request).await?;
@@ -381,12 +382,14 @@ pub async fn run_date_search(
             let batch = fetch_boundary(
                 index,
                 vector.clone(),
-                &request,
-                &scope,
-                ts,
-                boundary_offset,
-                remaining,
-                exclusions,
+                DateBoundaryQuery {
+                    request: &request,
+                    scope: &scope,
+                    boundary_ts: ts,
+                    offset: boundary_offset,
+                    limit: remaining,
+                    exclusions,
+                },
             )
             .await?;
             windows_consumed += 1;
@@ -588,12 +591,8 @@ pub async fn run_date_search(
     let has_more = (page_full && !hit_exhausted) || boundary_more || cap_fired;
 
     let next_cursor = if has_more {
-        let next = DateCursor {
+        let next = DateCursorState {
             limit,
-            query_hash: context.query_hash.clone(),
-            filter_hash: context.filter_hash.clone(),
-            generation: context.generation,
-            settings_hash: context.settings_hash.clone(),
             before,
             boundary_ts,
             // Thread the Qdrant-side resume key. When the boundary is
@@ -611,7 +610,7 @@ pub async fn run_date_search(
             },
             upper,
         };
-        Some(encode_date_cursor(&next))
+        Some(encode_date_cursor(&context, &next))
     } else {
         // The cap fired but there is no in-flight boundary (the
         // per-ts fetch already advanced `before` past the boundary).
@@ -620,18 +619,14 @@ pub async fn run_date_search(
         // cursor with no offset so the cursor decodes cleanly and the
         // `before` drives the next cross-timestamp fetch.
         if cap_fired {
-            let next = DateCursor {
+            let next = DateCursorState {
                 limit,
-                query_hash: context.query_hash.clone(),
-                filter_hash: context.filter_hash.clone(),
-                generation: context.generation,
-                settings_hash: context.settings_hash.clone(),
                 before,
                 boundary_ts: None,
                 offset: None,
                 upper,
             };
-            Some(encode_date_cursor(&next))
+            Some(encode_date_cursor(&context, &next))
         } else {
             None
         }
@@ -779,16 +774,30 @@ async fn fetch_window(
     Ok(page)
 }
 
-async fn fetch_boundary(
-    index: &dyn SearchIndex,
-    vector: Vec<f32>,
-    request: &SearchRequest,
-    scope: &crate::AccessScope,
+/// Inputs of one per-timestamp drain fetch. Grouped so the fetch call
+/// signature stays bounded.
+struct DateBoundaryQuery<'a> {
+    request: &'a SearchRequest,
+    scope: &'a crate::AccessScope,
     boundary_ts: i64,
     offset: Option<uuid::Uuid>,
     limit: usize,
-    exclusions: &SearchExclusions,
+    exclusions: &'a SearchExclusions,
+}
+
+async fn fetch_boundary(
+    index: &dyn SearchIndex,
+    vector: Vec<f32>,
+    query: DateBoundaryQuery<'_>,
 ) -> Result<crate::DateWindowPage> {
+    let DateBoundaryQuery {
+        request,
+        scope,
+        boundary_ts,
+        offset,
+        limit,
+        exclusions,
+    } = query;
     let started = std::time::Instant::now();
     // The per-timestamp drain filters to `published_ts == boundary_ts`
     // and pages through the population via the Qdrant-side offset. The
@@ -840,33 +849,15 @@ async fn embed_once(
 }
 
 fn validate_date_context(date: &DateCursor, context: &CursorContext) -> Result<()> {
-    if date.query_hash != context.query_hash {
-        return Err(DomainError::invalid_argument(
-            "cursor context mismatch: the cursor belongs to a different query; start again from the first page"
-        ).into());
-    }
-    if date.filter_hash != context.filter_hash {
-        return Err(DomainError::invalid_argument(
-            "cursor context mismatch: filters (locale, source, group, date range, or metadata filters) changed; start again from the first page"
-        ).into());
-    }
-    if date.settings_hash != context.settings_hash {
-        return Err(DomainError::invalid_argument(
-            "cursor context mismatch: search settings changed; start again from the first page",
-        )
-        .into());
-    }
-    if date.generation != context.generation {
-        return Err(DomainError::invalid_argument(
-            "cursor context mismatch: the indexed data has been refreshed; start again from the first page"
-        ).into());
-    }
-    if date.limit != context.limit {
-        return Err(DomainError::invalid_argument(format!(
-            "cursor context mismatch: page size changed from {} to {}; start again from the first page",
-            date.limit,
-            context.limit
-        )).into());
+    // The date context is covered by one combined binding, so the
+    // diagnostic is generic: a changed query, filter, setting, generation
+    // or page size all produce the same restart instruction. The payload
+    // page size is compared with the effective request page size first,
+    // because the binding is a fingerprint of the request context and does
+    // not cover the unkeyed payload copy.
+    validate_cursor_payload_limit(date.state.limit, context)?;
+    if date.binding != date_cursor_binding(context) {
+        return Err(cursor_context_mismatch_error());
     }
     // The request-level `MAX_DATE_WINDOWS` cap is per-request: the
     // cursor no longer carries a `windows_consumed` counter, so a
@@ -874,4 +865,62 @@ fn validate_date_context(date: &DateCursor, context: &CursorContext) -> Result<(
     // no over-64 reject-on-resume path.
     let _ = MAX_DATE_WINDOWS;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DateCursorState, validate_date_context};
+    use crate::service::search_cursor::{
+        CursorContext, cursor_context_mismatch_error, encode_date_cursor, tamper_payload,
+        validate_date_cursor,
+    };
+
+    fn context(limit: usize) -> CursorContext {
+        CursorContext {
+            query_hash: "qh".to_string(),
+            filter_hash: "fh".to_string(),
+            generation: 7,
+            settings_hash: "sh".to_string(),
+            limit,
+        }
+    }
+
+    fn state(limit: usize) -> DateCursorState {
+        DateCursorState {
+            limit,
+            before: Some(1_700_000_000),
+            boundary_ts: None,
+            offset: None,
+            upper: Some(1_700_000_000),
+        }
+    }
+
+    #[test]
+    fn date_pipeline_context_rejects_tampered_payload_limit() {
+        let context = context(8);
+        let valid = encode_date_cursor(&context, &state(8));
+        let decoded = validate_date_cursor(Some(&valid)).expect("valid date cursor decodes");
+        assert!(validate_date_context(&decoded, &context).is_ok());
+
+        // Retain the issued binding and rewrite only the fixed payload page
+        // size, so the date pipeline's own validator must reject it.
+        let tampered = tamper_payload(&valid, |payload| {
+            payload[1..9].copy_from_slice(&1u64.to_be_bytes());
+        });
+        let decoded = validate_date_cursor(Some(&tampered)).expect("tampered payload decodes");
+        assert_eq!(decoded.state.limit, 1);
+        let error = validate_date_context(&decoded, &context)
+            .expect_err("date payload page size must equal the request page size");
+        assert_eq!(
+            error.to_string(),
+            cursor_context_mismatch_error().to_string()
+        );
+    }
+
+    #[test]
+    fn date_pipeline_context_rejects_changed_request_page_size() {
+        let valid = encode_date_cursor(&context(8), &state(8));
+        let decoded = validate_date_cursor(Some(&valid)).expect("valid date cursor decodes");
+        assert!(validate_date_context(&decoded, &context(16)).is_err());
+    }
 }

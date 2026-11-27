@@ -830,6 +830,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cloudiful-pagination"
+version = "0.1.0"
+source = "git+https://forgejo.cloud1ful.com/crates/pagination?rev=719779dfad53db43557c489bc2402e5e03eb5a9f#719779dfad53db43557c489bc2402e5e03eb5a9f"
+dependencies = [
+ "base64 0.23.1",
+ "sha2 0.11.2",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "cloudiful-rate-limiter"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1033,7 +1043,7 @@ dependencies = [
  "sea-orm",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sqlx",
  "tiktoken-rs",
  "time",
@@ -1294,7 +1304,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "tokio",
  "url",
  "uuid",
@@ -1307,14 +1317,16 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "cloudiful-pagination",
  "context69-contracts-core",
+ "context69-contracts-mcp",
  "context69-contracts-search",
  "futures",
  "redis",
  "reqwest",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "tokio",
  "tracing",
  "uuid",
@@ -1379,7 +1391,7 @@ dependencies = [
  "sea-orm",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sqlx",
  "tracing",
  "uuid",
@@ -3779,7 +3791,7 @@ dependencies = [
  "md-5",
  "memchr",
  "rand 0.10.4",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "stringprep",
 ]
 
@@ -4276,7 +4288,7 @@ dependencies = [
  "log",
  "percent-encoding",
  "sha1",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "windows-sys 0.61.2",
 ]
 
@@ -4405,7 +4417,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sse-stream",
  "thiserror 2.0.21",
  "tokio",
@@ -4946,9 +4958,9 @@ dependencies = [
 
 [[package]]
 name = "sha2"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
+checksum = "5b0e5c7d67bc53f435386b2130fdc900488c5703770f6d8a4633060e34288a27"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.1",
@@ -5200,7 +5212,7 @@ dependencies = [
  "percent-encoding",
  "serde",
  "sha1",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sqlx-core",
  "thiserror 2.0.21",
  "time",
@@ -5235,7 +5247,7 @@ dependencies = [
  "rand 0.10.4",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "smallvec",
  "sqlx-core",
  "stringprep",

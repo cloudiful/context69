@@ -338,16 +338,16 @@ pub struct DateWindowQuery {
 /// `next_offset = None` means the window is exhausted; the pipeline may
 /// advance the `before` bound to the next older timestamp. The pipeline
 /// threads the offset back into the next call (and across requests via the
-/// `c4:` cursor) so the Qdrant `scroll` return order is the authoritative
-/// ordering — the pipeline does NOT re-sort in memory and the in-memory
-/// `seen` set is the only dedup mechanism.
+/// opaque date cursor) so the Qdrant `scroll` return order is the
+/// authoritative ordering — the pipeline does NOT re-sort in memory and the
+/// in-memory `seen` set is the only dedup mechanism.
 #[derive(Debug, Clone)]
 pub struct DateWindowPage {
     pub hits: Vec<SearchDatePointHit>,
     /// Opaque Qdrant-side offset for the next page within the same
     /// `published_ts` value. `None` when this page is the tail of the
     /// current window. The date pipeline threads this into the next
-    /// `search_by_date_window` call (and into the `c4:` cursor for
+    /// `search_by_date_window` call (and into the opaque date cursor for
     /// cross-request resume) so a replayed request resumes the
     /// keyset walk exactly after the last emitted record.
     pub next_offset: Option<uuid::Uuid>,

@@ -140,12 +140,14 @@ impl SearchService {
                 biased;
                 _ = abort.wait() => return Ok(()),
                 result = self.collect_candidates(
-                    &request,
-                    &scope,
-                    &settings,
-                    &query_hash,
-                    vector_limit,
-                    &exclusions,
+                    super::CandidateQuery {
+                        request: &request,
+                        scope: &scope,
+                        settings: &settings,
+                        query_hash: &query_hash,
+                        vector_limit,
+                        exclusions: &exclusions,
+                    },
                     &mut probe,
                 ) => result?,
             };
@@ -507,7 +509,7 @@ impl SearchService {
         // error frame). We send the error as the only frame in that case.
         if let Some(raw_cursor) = request.cursor.as_deref() {
             // The relevance decoder already rejects unknown prefixes; for a
-            // date stream we additionally require a `c4:` cursor.
+            // date stream we additionally require a date-family cursor.
             super::search_cursor::validate_date_cursor(Some(raw_cursor))?;
         }
         loop {

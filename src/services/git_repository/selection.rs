@@ -258,9 +258,7 @@ fn safety_skip_reason(path: &str) -> Option<SkipReason> {
     if lower_name.contains(".min.") {
         return Some(SkipReason::Minified);
     }
-    let Some((_, extension)) = lower_name.rsplit_once('.') else {
-        return None;
-    };
+    let (_, extension) = lower_name.rsplit_once('.')?;
     if extension == "map" {
         return Some(SkipReason::SourceMap);
     }

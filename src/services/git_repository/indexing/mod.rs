@@ -141,6 +141,20 @@ impl<T: GitHttpTransport + ?Sized + Sync + 'static> GitSnapshotProvider
     }
 }
 
+/// The captured identity of one snapshot attempt.
+///
+/// The attempt may only begin and publish while the captured configuration
+/// revision is still current, so the revision, the repository and the code
+/// target travel together as one request.
+#[derive(Clone, Copy)]
+pub(crate) struct SnapshotIndexRequest<'a> {
+    pub group_id: i64,
+    pub repository_key: Uuid,
+    pub code: Option<&'a CodeVectorRequest>,
+    pub force_rebuild: bool,
+    pub expected_config_revision: i64,
+}
+
 /// Indexes one snapshot against the source revision the caller captured before
 /// building the provider.
 ///
@@ -152,27 +166,16 @@ pub(crate) async fn index_git_repository_snapshot_at_revision(
     db: &Database,
     provider: &dyn GitSnapshotProvider,
     limits: GitIndexLimits,
-    group_id: i64,
-    repository_key: Uuid,
-    code: Option<&CodeVectorRequest>,
-    force_rebuild: bool,
-    expected_config_revision: i64,
+    request: SnapshotIndexRequest<'_>,
 ) -> Result<GitSnapshotIndexOutcome> {
-    let guard = crate::db::GitIndexLifetimeGuard::acquire(db.pool(), repository_key).await?;
-    let mut progress = SnapshotProgress::default();
-    let result = match attempt_snapshot(
-        db,
-        provider,
-        &limits,
+    let SnapshotIndexRequest {
         group_id,
         repository_key,
-        code,
-        force_rebuild,
-        expected_config_revision,
-        &mut progress,
-    )
-    .await
-    {
+        ..
+    } = request;
+    let guard = crate::db::GitIndexLifetimeGuard::acquire(db.pool(), repository_key).await?;
+    let mut progress = SnapshotProgress::default();
+    let result = match attempt_snapshot(db, provider, &limits, request, &mut progress).await {
         Ok(outcome) => Ok(outcome),
         Err(error) => {
             fail_snapshot(db, group_id, repository_key, progress).await;

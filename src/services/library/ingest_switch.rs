@@ -451,28 +451,27 @@ pub async fn switch_replacement(
 
     // The old source is released on the same transaction, and only when it is
     // a different object that no other row references any more.
-    if let Some(old_object) = locked_file.storage_object_id {
-        if Some(old_object) != plan.staged_source_object {
-            let references = store
-                .count_storage_object_references_on_connection(write.connection(), old_object)
+    if let Some(old_object) = locked_file.storage_object_id
+        && Some(old_object) != plan.staged_source_object
+    {
+        let references = store
+            .count_storage_object_references_on_connection(write.connection(), old_object)
+            .await?;
+        if references == 0
+            && let Some(object) = store
+                .get_storage_object_by_id_on_connection(write.connection(), old_object)
+                .await?
+        {
+            store
+                .insert_source_object_cleanup(
+                    write.connection(),
+                    Some(old_object),
+                    locked_file.group_id,
+                    Some(&object.sha256),
+                    &object.object_key,
+                    &object.storage_backend,
+                )
                 .await?;
-            if references == 0 {
-                if let Some(object) = store
-                    .get_storage_object_by_id_on_connection(write.connection(), old_object)
-                    .await?
-                {
-                    store
-                        .insert_source_object_cleanup(
-                            write.connection(),
-                            Some(old_object),
-                            locked_file.group_id,
-                            Some(&object.sha256),
-                            &object.object_key,
-                            &object.storage_backend,
-                        )
-                        .await?;
-                }
-            }
         }
     }
 

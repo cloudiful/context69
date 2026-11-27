@@ -217,7 +217,7 @@ impl Database {
         after_document_id: Option<i64>,
         limit: i64,
     ) -> Result<Vec<RebuildDocumentRow>> {
-        Ok(sqlx::query_file_as!(
+        sqlx::query_file_as!(
             RebuildDocumentRow,
             "src/sql/db/documents/list_rebuild_documents_page.sql",
             after_document_id,
@@ -225,7 +225,7 @@ impl Database {
         )
         .fetch_all(&self.pool)
         .await
-        .context("list rebuild documents page")?)
+        .context("list rebuild documents page")
     }
 
     pub async fn list_rebuild_missing_documents_page(
@@ -233,14 +233,14 @@ impl Database {
         after_document_id: Option<i64>,
         limit: i64,
     ) -> Result<Vec<i64>> {
-        Ok(sqlx::query_file_scalar!(
+        sqlx::query_file_scalar!(
             "src/sql/db/documents/list_rebuild_missing_documents_page.sql",
             after_document_id,
             limit,
         )
         .fetch_all(&self.pool)
         .await
-        .context("list rebuild documents without a canonical body")?)
+        .context("list rebuild documents without a canonical body")
     }
 
     /// Stage one document's fresh chunks, its progress and its current
@@ -321,14 +321,14 @@ impl Database {
         &self,
         target_collection: &str,
     ) -> Result<RebuildStagingCounts> {
-        Ok(sqlx::query_file_as!(
+        sqlx::query_file_as!(
             RebuildStagingCounts,
             "src/sql/db/documents/count_rebuild_staging_chunks.sql",
             target_collection,
         )
         .fetch_one(&self.pool)
         .await
-        .context("count rebuild staging chunks")?)
+        .context("count rebuild staging chunks")
     }
 
     /// The staged and total document counts of one running rebuild target.
@@ -356,7 +356,7 @@ impl Database {
         after_chunk_index: Option<i32>,
         limit: i64,
     ) -> Result<Vec<StagedRebuildChunkRow>> {
-        Ok(sqlx::query_file_as!(
+        sqlx::query_file_as!(
             StagedRebuildChunkRow,
             "src/sql/db/documents/list_rebuild_staging_chunks_page.sql",
             target_collection,
@@ -366,7 +366,7 @@ impl Database {
         )
         .fetch_all(&self.pool)
         .await
-        .context("list staged rebuild chunks page")?)
+        .context("list staged rebuild chunks page")
     }
 
     pub async fn list_translation_rebuild_staging_page(
@@ -377,7 +377,7 @@ impl Database {
         after_chunk_index: Option<i32>,
         limit: i64,
     ) -> Result<Vec<StagedRebuildTranslationRow>> {
-        Ok(sqlx::query_file_as!(
+        sqlx::query_file_as!(
             StagedRebuildTranslationRow,
             "src/sql/db/translations/list_translation_rebuild_staging_page.sql",
             target_collection,
@@ -388,7 +388,7 @@ impl Database {
         )
         .fetch_all(&self.pool)
         .await
-        .context("list staged translation chunks page")?)
+        .context("list staged translation chunks page")
     }
 
     pub async fn verify_rebuild_staging(
@@ -405,14 +405,14 @@ impl Database {
         connection: &mut PgConnection,
         target_collection: &str,
     ) -> Result<RebuildStagingVerification> {
-        Ok(sqlx::query_file_as!(
+        sqlx::query_file_as!(
             RebuildStagingVerification,
             "src/sql/db/documents/verify_rebuild_staging.sql",
             target_collection,
         )
         .fetch_one(connection)
         .await
-        .context("verify the staged rebuild snapshot")?)
+        .context("verify the staged rebuild snapshot")
     }
 
     pub async fn read_projected_registry_usage_in(
@@ -420,14 +420,14 @@ impl Database {
         connection: &mut PgConnection,
         target_collection: &str,
     ) -> Result<RebuildProjectedUsage> {
-        Ok(sqlx::query_file_as!(
+        sqlx::query_file_as!(
             RebuildProjectedUsage,
             "src/sql/db/search_registry/read_projected_usage.sql",
             target_collection,
         )
         .fetch_one(connection)
         .await
-        .context("read the projected registry usage")?)
+        .context("read the projected registry usage")
     }
 
     /// Bound how long the one-time reset waits for the chunk table lock.

@@ -416,9 +416,8 @@ async fn hydrate(
 ) -> Result<HashMap<Uuid, StoredGitCodeChunkHydration>> {
     let rows = db
         .hydrate_git_generation_chunks_by_keys(
-            source.group.group_id,
-            source.repository_key,
-            generation.generation_key,
+            source,
+            generation,
             keys,
             params.path_prefix,
             params.language,

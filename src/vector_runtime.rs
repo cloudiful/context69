@@ -192,6 +192,11 @@ impl Default for VectorRuntimeState {
     }
 }
 
+/// The test-only admission pause point: a one-shot callback invoked before
+/// the runtime reserves its identity exclusion.
+#[cfg(test)]
+type AdmissionPause = Arc<std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>>;
+
 /// The process-wide vector runtime handle.
 #[derive(Clone)]
 pub struct VectorRuntime {
@@ -207,7 +212,7 @@ pub struct VectorRuntime {
     /// Test-only pause point before the exclusion is reserved, used to prove the
     /// reservation-then-inspect ordering deterministically.
     #[cfg(test)]
-    admission_pause: Arc<std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>>,
+    admission_pause: AdmissionPause,
 }
 
 impl Default for VectorRuntime {

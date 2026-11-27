@@ -189,14 +189,16 @@ pub(super) async fn process_text(
                     };
                     return super::item_replacement_processor::claim_atomic_first_insert(
                         service,
-                        group.id,
-                        task,
-                        item,
-                        &file,
-                        staged,
-                        Some(&metadata),
-                        request.translation.as_ref(),
-                        crate::db::IngestRunSource::Stored,
+                        super::item_replacement_processor::AtomicFirstInsertClaim {
+                            group_id: group.id,
+                            task,
+                            item,
+                            file: &file,
+                            staged_object: staged,
+                            metadata: Some(&metadata),
+                            translation: request.translation.as_ref(),
+                            source: crate::db::IngestRunSource::Stored,
+                        },
                     )
                     .await;
                 }
@@ -422,14 +424,16 @@ pub(super) async fn process_file(
                             .then_some(&upload.options.metadata);
                         return super::item_replacement_processor::claim_atomic_first_insert(
                             service,
-                            group.id,
-                            task,
-                            item,
-                            &file,
-                            staged,
-                            metadata,
-                            upload.options.translation.as_ref(),
-                            crate::db::IngestRunSource::Stored,
+                            super::item_replacement_processor::AtomicFirstInsertClaim {
+                                group_id: group.id,
+                                task,
+                                item,
+                                file: &file,
+                                staged_object: staged,
+                                metadata,
+                                translation: upload.options.translation.as_ref(),
+                                source: crate::db::IngestRunSource::Stored,
+                            },
                         )
                         .await;
                     }

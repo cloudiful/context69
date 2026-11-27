@@ -86,7 +86,7 @@ pub(crate) async fn search_git_repository_code(
         &query,
     ) {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     // The visible groups come from the caller's resolved access scope, never
     // from the request, so a private repository is searched only for a caller who
@@ -137,11 +137,11 @@ fn preflight_search<'a>(
     token_scope: Option<&TokenGroupScope>,
     group: &'a GroupRecord,
     query: &GitCodeSearchQuery,
-) -> Result<(CodeSearchAdmission<'a>, SearchFilters), Response> {
+) -> Result<(CodeSearchAdmission<'a>, SearchFilters), Box<Response>> {
     let admission = CodeSearchAdmission::admit(authorizer, user_id, token_scope, group)
-        .map_err(|error| group_access_error_response(error))?;
+        .map_err(|error| Box::new(group_access_error_response(error)))?;
     let filters = SearchFilters::validated(query)
-        .map_err(|error| library_management_error_response(error))?;
+        .map_err(|error| Box::new(library_management_error_response(error)))?;
     Ok((admission, filters))
 }
 

@@ -65,7 +65,7 @@ pub(crate) async fn list_git_repository_files(
 ) -> Response {
     let group = match readable_group(&state, &session, &group_path).await {
         Ok(group) => group,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let page = match requested_page(&query) {
         Ok(page) => page,
@@ -73,7 +73,7 @@ pub(crate) async fn list_git_repository_files(
     };
     let (source, generation) = match serving_source(&state.app.db, group.id, repository_key).await {
         Ok(serving) => serving,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     // One extra row answers `has_more` without a second count query, and the
     // manifest is read in the same path order the storage layer pages in.

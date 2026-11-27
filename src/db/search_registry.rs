@@ -608,12 +608,10 @@ impl Database {
     /// blocks a move of the vector space: the staged points belong to the
     /// space the collection was built with.
     pub async fn read_staging_count(&self) -> Result<i64> {
-        Ok(
-            sqlx::query_file_scalar!("src/sql/db/search_registry/read_staging_count.sql")
-                .fetch_one(&self.pool)
-                .await
-                .context("read the unresolved staging entries")?,
-        )
+        sqlx::query_file_scalar!("src/sql/db/search_registry/read_staging_count.sql")
+            .fetch_one(&self.pool)
+            .await
+            .context("read the unresolved staging entries")
     }
 
     /// Whether the recorded owner of the rebuild barrier can still write.
@@ -632,14 +630,14 @@ impl Database {
         owner_item_id: Uuid,
         owner_token: Uuid,
     ) -> Result<bool> {
-        Ok(sqlx::query_file_scalar!(
+        sqlx::query_file_scalar!(
             "src/sql/db/search_registry/read_owner_live.sql",
             owner_item_id,
             owner_token
         )
         .fetch_one(&mut *connection)
         .await
-        .context("read the rebuild owner liveness")?)
+        .context("read the rebuild owner liveness")
     }
 
     /// The persistent rebuild barrier, read on the caller's connection.

@@ -391,13 +391,10 @@ fn postgres_error_code(error: &(dyn std::error::Error + 'static)) -> Option<Stri
     }
     if let Some(database_error) = error.downcast_ref::<sea_orm::DbErr>() {
         return match database_error {
-            sea_orm::DbErr::Query(runtime_error) => match runtime_error {
-                sea_orm::error::RuntimeErr::SqlxError(sqlx_error) => sqlx_error
-                    .as_database_error()
-                    .and_then(|database_error| database_error.code())
-                    .map(|code| code.into_owned()),
-                _ => None,
-            },
+            sea_orm::DbErr::Query(sea_orm::error::RuntimeErr::SqlxError(sqlx_error)) => sqlx_error
+                .as_database_error()
+                .and_then(|database_error| database_error.code())
+                .map(|code| code.into_owned()),
             _ => None,
         };
     }

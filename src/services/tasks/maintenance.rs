@@ -266,6 +266,154 @@ fn remote_tasks_with_cleanup(
     response
 }
 
+impl TaskService {
+    pub async fn admin_cancel_active_tasks(
+        &self,
+        actor: &UserRecord,
+    ) -> Result<CancelActiveTasksResponse> {
+        self.require_admin(actor)?;
+        Ok(CancelActiveTasksResponse {
+            cancelled_tasks: self.db().cancel_all_active_tasks().await?,
+        })
+    }
+
+    /// Reads the durable global admission state of the task queue.
+    ///
+    /// Admin-only: the state describes the whole deployment, not one operator's
+    /// work.
+    pub async fn admin_task_queue_state(
+        &self,
+        actor: &UserRecord,
+    ) -> Result<TaskQueueStateResponse> {
+        self.require_admin(actor)?;
+        Ok(task_queue_state_response(
+            self.db().read_task_queue_state().await?,
+        ))
+    }
+
+    /// Writes the durable global admission state of the task queue.
+    ///
+    /// The write commits before the caller is acknowledged, so a pause is
+    /// durable across a restart and visible to every replica. A resume wakes
+    /// this replica's dispatch immediately; another replica picks the queue up
+    /// on its existing recovery tick, which is at most the scheduler interval.
+    /// The pause is never a cancellation: running items keep their leases.
+    pub async fn admin_update_task_queue_state(
+        &self,
+        actor: &UserRecord,
+        request: &UpdateTaskQueueStateRequest,
+    ) -> Result<TaskQueueStateResponse> {
+        self.require_admin(actor)?;
+        let state = self.db().set_task_queue_paused(request.paused).await?;
+        if !state.paused {
+            self.notify_dispatch();
+        }
+        Ok(task_queue_state_response(state))
+    }
+
+    /// Bounded admin read of the fork's active Docling task identities.
+    ///
+    /// Issue 84 P1: uses the saved Docling settings only, validates the
+    /// `limit`/`offset` bounds, and returns the fork's `has_more` verbatim.
+    /// Non-admin callers are denied before any remote access.
+    pub async fn admin_docling_remote_tasks(
+        &self,
+        actor: &UserRecord,
+        query: &DoclingRemoteTasksQuery,
+    ) -> Result<DoclingRemoteTasksResponse> {
+        self.require_admin(actor)?;
+        validate_remote_query(query)?;
+        let cleanup = self
+            .db()
+            .list_recent_docling_cleanup(100)
+            .await?
+            .into_iter()
+            .map(|row| {
+                let reason_code = docling_cleanup_reason_code(
+                    &row.status,
+                    row.outcome.as_deref(),
+                    row.last_error.as_deref(),
+                );
+                row.into_cleanup_task(reason_code)
+            })
+            .collect();
+        let remote = self
+            .library()
+            .list_docling_remote_tasks(query.limit, query.offset)
+            .await;
+        Ok(remote_tasks_with_cleanup(remote, cleanup))
+    }
+
+    /// Genuine admin page over the persisted local cleanup outbox.
+    ///
+    /// Non-admin callers are denied before any query. Filters are exact matches
+    /// on persisted columns and the pagination total is the real server total,
+    /// so a page beyond the legacy 100-row window stays reachable.
+    pub async fn admin_docling_cleanup_page(
+        &self,
+        actor: &UserRecord,
+        query: &DoclingCleanupQuery,
+    ) -> Result<DoclingCleanupPageResponse> {
+        self.require_admin(actor)?;
+        validate_cleanup_query(query)?;
+        let page = OffsetPageQuery {
+            page: query.page,
+            page_size: query.page_size,
+        };
+        let offset = page.offset().map_err(|error| {
+            crate::domain_errors::DomainError::invalid_argument(error.to_string())
+        })?;
+        let status = query.status.map(|value| value.as_str());
+        let outcome = query.outcome.map(|value| value.as_str());
+        let remote_task_id = query.normalized_remote_task_id();
+        let total = self
+            .db()
+            .count_docling_cleanup(status, outcome, remote_task_id)
+            .await?;
+        let rows = if total == 0 {
+            Vec::new()
+        } else {
+            self.db()
+                .list_docling_cleanup_page(
+                    status,
+                    outcome,
+                    remote_task_id,
+                    i64::from(query.page_size),
+                    offset,
+                )
+                .await?
+        };
+        let items = rows
+            .into_iter()
+            .map(|row| {
+                let reason_code = docling_cleanup_reason_code(
+                    &row.status,
+                    row.outcome.as_deref(),
+                    row.last_error.as_deref(),
+                );
+                row.into_cleanup_task(reason_code)
+            })
+            .collect();
+        let total = u64::try_from(total).map_err(|error| {
+            crate::domain_errors::DomainError::invalid_argument(error.to_string())
+        })?;
+        let pagination =
+            Pagination::try_new(query.page, query.page_size, total).map_err(|error| {
+                crate::domain_errors::DomainError::invalid_argument(error.to_string())
+            })?;
+        Ok(DoclingCleanupPageResponse { items, pagination })
+    }
+
+    pub async fn admin_docling_cleanup(
+        &self,
+        actor: &UserRecord,
+    ) -> Result<context69_contracts::DoclingCleanupResponse> {
+        self.require_admin(actor)?;
+        let woken = self.db().wake_due_docling_cleanup().await?.len() as u32;
+        Ok(context69_contracts::DoclingCleanupResponse { woken })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,153 +670,5 @@ mod tests {
             docling_cleanup_reason_code("pending", None, Some("http://127.0.0.1:5001/v1/tasks/x")),
             Some(Code::Unspecified)
         );
-    }
-}
-
-impl TaskService {
-    pub async fn admin_cancel_active_tasks(
-        &self,
-        actor: &UserRecord,
-    ) -> Result<CancelActiveTasksResponse> {
-        self.require_admin(actor)?;
-        Ok(CancelActiveTasksResponse {
-            cancelled_tasks: self.db().cancel_all_active_tasks().await?,
-        })
-    }
-
-    /// Reads the durable global admission state of the task queue.
-    ///
-    /// Admin-only: the state describes the whole deployment, not one operator's
-    /// work.
-    pub async fn admin_task_queue_state(
-        &self,
-        actor: &UserRecord,
-    ) -> Result<TaskQueueStateResponse> {
-        self.require_admin(actor)?;
-        Ok(task_queue_state_response(
-            self.db().read_task_queue_state().await?,
-        ))
-    }
-
-    /// Writes the durable global admission state of the task queue.
-    ///
-    /// The write commits before the caller is acknowledged, so a pause is
-    /// durable across a restart and visible to every replica. A resume wakes
-    /// this replica's dispatch immediately; another replica picks the queue up
-    /// on its existing recovery tick, which is at most the scheduler interval.
-    /// The pause is never a cancellation: running items keep their leases.
-    pub async fn admin_update_task_queue_state(
-        &self,
-        actor: &UserRecord,
-        request: &UpdateTaskQueueStateRequest,
-    ) -> Result<TaskQueueStateResponse> {
-        self.require_admin(actor)?;
-        let state = self.db().set_task_queue_paused(request.paused).await?;
-        if !state.paused {
-            self.notify_dispatch();
-        }
-        Ok(task_queue_state_response(state))
-    }
-
-    /// Bounded admin read of the fork's active Docling task identities.
-    ///
-    /// Issue 84 P1: uses the saved Docling settings only, validates the
-    /// `limit`/`offset` bounds, and returns the fork's `has_more` verbatim.
-    /// Non-admin callers are denied before any remote access.
-    pub async fn admin_docling_remote_tasks(
-        &self,
-        actor: &UserRecord,
-        query: &DoclingRemoteTasksQuery,
-    ) -> Result<DoclingRemoteTasksResponse> {
-        self.require_admin(actor)?;
-        validate_remote_query(query)?;
-        let cleanup = self
-            .db()
-            .list_recent_docling_cleanup(100)
-            .await?
-            .into_iter()
-            .map(|row| {
-                let reason_code = docling_cleanup_reason_code(
-                    &row.status,
-                    row.outcome.as_deref(),
-                    row.last_error.as_deref(),
-                );
-                row.into_cleanup_task(reason_code)
-            })
-            .collect();
-        let remote = self
-            .library()
-            .list_docling_remote_tasks(query.limit, query.offset)
-            .await;
-        Ok(remote_tasks_with_cleanup(remote, cleanup))
-    }
-
-    /// Genuine admin page over the persisted local cleanup outbox.
-    ///
-    /// Non-admin callers are denied before any query. Filters are exact matches
-    /// on persisted columns and the pagination total is the real server total,
-    /// so a page beyond the legacy 100-row window stays reachable.
-    pub async fn admin_docling_cleanup_page(
-        &self,
-        actor: &UserRecord,
-        query: &DoclingCleanupQuery,
-    ) -> Result<DoclingCleanupPageResponse> {
-        self.require_admin(actor)?;
-        validate_cleanup_query(query)?;
-        let page = OffsetPageQuery {
-            page: query.page,
-            page_size: query.page_size,
-        };
-        let offset = page.offset().map_err(|error| {
-            crate::domain_errors::DomainError::invalid_argument(error.to_string())
-        })?;
-        let status = query.status.map(|value| value.as_str());
-        let outcome = query.outcome.map(|value| value.as_str());
-        let remote_task_id = query.normalized_remote_task_id();
-        let total = self
-            .db()
-            .count_docling_cleanup(status, outcome, remote_task_id)
-            .await?;
-        let rows = if total == 0 {
-            Vec::new()
-        } else {
-            self.db()
-                .list_docling_cleanup_page(
-                    status,
-                    outcome,
-                    remote_task_id,
-                    i64::from(query.page_size),
-                    offset,
-                )
-                .await?
-        };
-        let items = rows
-            .into_iter()
-            .map(|row| {
-                let reason_code = docling_cleanup_reason_code(
-                    &row.status,
-                    row.outcome.as_deref(),
-                    row.last_error.as_deref(),
-                );
-                row.into_cleanup_task(reason_code)
-            })
-            .collect();
-        let total = u64::try_from(total).map_err(|error| {
-            crate::domain_errors::DomainError::invalid_argument(error.to_string())
-        })?;
-        let pagination =
-            Pagination::try_new(query.page, query.page_size, total).map_err(|error| {
-                crate::domain_errors::DomainError::invalid_argument(error.to_string())
-            })?;
-        Ok(DoclingCleanupPageResponse { items, pagination })
-    }
-
-    pub async fn admin_docling_cleanup(
-        &self,
-        actor: &UserRecord,
-    ) -> Result<context69_contracts::DoclingCleanupResponse> {
-        self.require_admin(actor)?;
-        let woken = self.db().wake_due_docling_cleanup().await?.len() as u32;
-        Ok(context69_contracts::DoclingCleanupResponse { woken })
     }
 }

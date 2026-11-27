@@ -305,15 +305,15 @@ impl LibraryService {
                 .map_err(|error| task_failure("indexing", error, false))?;
                 for batch in super::ingest_batches::ChunkBatchIter::new(chunks) {
                     let batch = batch.map_err(|error| task_failure("indexing", error, false))?;
-                    self.persist_batch_content(
-                        Some(fence),
+                    self.persist_batch_content(super::ingest_checkpoint_batch::BatchContent {
+                        fence: Some(fence),
                         file,
                         prepared_section,
                         document_id,
-                        &batch,
-                        &runtime,
-                        identity.as_ref(),
-                    )
+                        batch: &batch,
+                        runtime: &runtime,
+                        identity: identity.as_ref(),
+                    })
                     .await?;
                 }
             }

@@ -25,7 +25,7 @@ pub(crate) async fn get_task(
     Path(task_id): Path<Uuid>,
 ) -> Response {
     if let Err(response) = super::authorize_task(&state, &session, task_id).await {
-        return response;
+        return *response;
     }
     match state.app.tasks.get(task_id, session.user.id).await {
         Ok(task) => (StatusCode::OK, Json(task)).into_response(),
@@ -87,7 +87,7 @@ pub(crate) async fn list_task_items(
     Query(query): Query<TaskItemsQuery>,
 ) -> Response {
     if let Err(response) = super::authorize_task(&state, &session, task_id).await {
-        return response;
+        return *response;
     }
     let offset = query.cursor.as_deref().unwrap_or("0").parse::<i64>();
     let offset = match offset {
@@ -126,7 +126,7 @@ pub(crate) async fn diagnose_task(
     Path(task_id): Path<Uuid>,
 ) -> Response {
     if let Err(response) = super::authorize_task(&state, &session, task_id).await {
-        return response;
+        return *response;
     }
     // Same task-detail authorization as `get_task`: the task must belong to the
     // caller or to a group they inherit, so a foreign task is `not_found`.
@@ -143,7 +143,7 @@ pub(crate) async fn retry_task(
     Path(task_id): Path<Uuid>,
 ) -> Response {
     if let Err(response) = super::authorize_task(&state, &session, task_id).await {
-        return response;
+        return *response;
     }
     match state.app.tasks.retry(task_id, session.user.id).await {
         Ok(task) => (StatusCode::ACCEPTED, Json(task)).into_response(),
@@ -177,7 +177,7 @@ pub(crate) async fn rerun_task(
     Path(task_id): Path<Uuid>,
 ) -> Response {
     if let Err(response) = super::authorize_task(&state, &session, task_id).await {
-        return response;
+        return *response;
     }
     // Routing: a cancelled submission reopens its own items and keeps its id,
     // a failed task keeps the documented fresh-parent rerun, and a succeeded
@@ -214,7 +214,7 @@ pub(crate) async fn pause_task(
     Path(task_id): Path<Uuid>,
 ) -> Response {
     if let Err(response) = super::authorize_task(&state, &session, task_id).await {
-        return response;
+        return *response;
     }
     match state.app.tasks.pause_task(task_id, session.user.id).await {
         Ok(task) => (StatusCode::OK, Json(task)).into_response(),
@@ -229,7 +229,7 @@ pub(crate) async fn resume_task(
     Path(task_id): Path<Uuid>,
 ) -> Response {
     if let Err(response) = super::authorize_task(&state, &session, task_id).await {
-        return response;
+        return *response;
     }
     match state.app.tasks.resume_task(task_id, session.user.id).await {
         Ok(task) => (StatusCode::OK, Json(task)).into_response(),
@@ -244,7 +244,7 @@ pub(crate) async fn cancel_task(
     Path(task_id): Path<Uuid>,
 ) -> Response {
     if let Err(response) = super::authorize_task(&state, &session, task_id).await {
-        return response;
+        return *response;
     }
     match state.app.tasks.cancel(task_id, session.user.id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -259,7 +259,7 @@ pub(crate) async fn trash_task(
     Path(task_id): Path<Uuid>,
 ) -> Response {
     if let Err(response) = super::authorize_task(&state, &session, task_id).await {
-        return response;
+        return *response;
     }
     match state.app.tasks.trash(task_id, session.user.id).await {
         Ok(task) => (StatusCode::OK, Json(task)).into_response(),
@@ -274,7 +274,7 @@ pub(crate) async fn restore_task(
     Path(task_id): Path<Uuid>,
 ) -> Response {
     if let Err(response) = super::authorize_task(&state, &session, task_id).await {
-        return response;
+        return *response;
     }
     match state.app.tasks.restore(task_id, session.user.id).await {
         Ok(task) => (StatusCode::OK, Json(task)).into_response(),
@@ -396,7 +396,7 @@ pub(crate) async fn delete_task(
     Path(task_id): Path<Uuid>,
 ) -> Response {
     if let Err(response) = super::authorize_task(&state, &session, task_id).await {
-        return response;
+        return *response;
     }
     match state
         .app

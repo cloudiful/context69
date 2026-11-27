@@ -25,7 +25,9 @@ use super::file_types::{
     NewGitGenerationChunk, StoredGitGenerationChunk, StoredGitGenerationFile, lexical_hit_from_row,
 };
 use super::files::bounded_page;
+use super::generation_types::StoredGitRepositoryGeneration;
 use super::rows::GitCodeChunkHydrationRow;
+use super::types::StoredGitRepositorySource;
 use crate::db::Database;
 use crate::domain_errors::DomainError;
 
@@ -101,9 +103,8 @@ impl Database {
     /// trusted: the stored row is the only content authority.
     pub async fn hydrate_git_generation_chunks_by_keys(
         &self,
-        group_id: i64,
-        repository_key: Uuid,
-        generation_key: Uuid,
+        source: &StoredGitRepositorySource,
+        generation: &StoredGitRepositoryGeneration,
         chunk_keys: &[Uuid],
         path_prefix: Option<&str>,
         language: Option<&str>,
@@ -119,9 +120,9 @@ impl Database {
         let rows = sqlx::query_file_as!(
             GitCodeChunkHydrationRow,
             "src/sql/db/git_repository_files/get_git_active_generation_chunks_by_keys.sql",
-            group_id,
-            repository_key,
-            generation_key,
+            source.group.group_id,
+            source.repository_key,
+            generation.generation_key,
             chunk_keys,
             path_prefix_pattern.as_deref(),
             language,

@@ -836,11 +836,10 @@ pub fn chunk_document_iter_with_budget<'a>(
 ) -> Result<ChunkBudgetDocumentIter<'a>, ChunkingError> {
     budget.validate()?;
     Ok(match budget.mode {
-        ChunkBudgetMode::Chars => match static_resolved_budget(budget)? {
-            resolved => {
-                resolved.chunk_document_iter(document_id, source_key, document, generation)?
-            }
-        },
+        ChunkBudgetMode::Chars => {
+            let resolved = static_resolved_budget(budget)?;
+            resolved.chunk_document_iter(document_id, source_key, document, generation)?
+        }
         ChunkBudgetMode::Tokens | ChunkBudgetMode::TokensV2 => {
             ChunkBudgetDocumentIter::Tokens(token_chunk_iter(
                 document_id,

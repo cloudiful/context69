@@ -58,8 +58,7 @@ impl LibraryMetadataMirrorLock {
     /// pooled connection while this borrow is alive.
     pub fn connection(&mut self) -> &mut PgConnection {
         self.connection
-            .as_mut()
-            .map(|connection| &mut **connection)
+            .as_deref_mut()
             .expect("an unreleased mirror lock keeps its connection")
     }
 

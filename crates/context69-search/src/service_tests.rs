@@ -1622,7 +1622,7 @@ fn date_mode_rerank_is_not_invoked() {
 
 #[test]
 fn date_mode_rejects_relevance_cursor() {
-    // A `c1:` cursor must not be accepted by the date pipeline.
+    // A relevance cursor must not be accepted by the date pipeline.
     let hit = (Uuid::new_v4(), make_hit(1, 1_700_000_010, "body"));
     let mut hydrated = HashMap::new();
     hydrated.insert(hit.0, hit.1.clone());
@@ -1652,23 +1652,28 @@ fn date_mode_rejects_relevance_cursor() {
 
 #[test]
 fn date_mode_rejects_changed_filter() {
-    // A `c4:` cursor with a mismatched query must be rejected.
+    // A date cursor with a mismatched query context must be rejected.
     let hit = (Uuid::new_v4(), make_hit(1, 1_700_000_010, "body"));
     let mut hydrated = HashMap::new();
     hydrated.insert(hit.0, hit.1.clone());
     let index_hits = vec![date_hit(hit.0, Some(1_700_000_010))];
     let (service, _) = build_date_service(index_hits, hydrated, Some(1_700_000_010));
-    let cursor = super::search_cursor::encode_date_cursor(&super::search_cursor::DateCursor {
-        limit: 8,
-        query_hash: "different".to_string(),
-        filter_hash: SearchCache::filter_hash(&date_request(8)),
-        generation: 0,
-        settings_hash: SearchCache::settings_hash(&vector_settings()),
-        before: Some(1_700_000_010),
-        boundary_ts: Some(1_700_000_010),
-        offset: None,
-        upper: Some(1_700_000_010),
-    });
+    let cursor = super::search_cursor::encode_date_cursor(
+        &CursorContext {
+            query_hash: "different".to_string(),
+            filter_hash: SearchCache::filter_hash(&date_request(8)),
+            generation: 0,
+            settings_hash: SearchCache::settings_hash(&vector_settings()),
+            limit: 8,
+        },
+        &super::search_cursor::DateCursorState {
+            limit: 8,
+            before: Some(1_700_000_010),
+            boundary_ts: Some(1_700_000_010),
+            offset: None,
+            upper: Some(1_700_000_010),
+        },
+    );
     let error = block_on(service.search(None, date_request_with_cursor(8, cursor), None))
         .expect_err("query hash mismatch must be rejected");
     assert!(error.to_string().contains("cursor context mismatch"));
@@ -2591,7 +2596,9 @@ fn date_mode_request_window_cap_preserves_qdrant_offset_in_cursor() {
         panic!("expected a date cursor; got {decoded:?}");
     };
     assert!(
-        date.offset.is_some() || date.boundary_ts.is_some() || date.before.is_some(),
+        date.state.offset.is_some()
+            || date.state.boundary_ts.is_some()
+            || date.state.before.is_some(),
         "cap cursor must carry a resume key (offset, boundary_ts, or before); got {date:?}"
     );
     // Second request onwards: fresh budget drains the remaining

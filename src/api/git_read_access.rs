@@ -31,13 +31,13 @@ pub(super) async fn readable_group(
     state: &ApiState,
     session: &crate::services::auth::AuthSession,
     group_path: &str,
-) -> Result<GroupRecord, Response> {
+) -> Result<GroupRecord, Box<Response>> {
     let group = match group_for_user(state, session, group_path).await {
         Ok(group) => group,
-        Err(error) => return Err(group_access_error_response(error)),
+        Err(error) => return Err(Box::new(group_access_error_response(error))),
     };
     if let Err(error) = require_group_role(state, session, &group, MembershipRole::Viewer) {
-        return Err(group_access_error_response(error));
+        return Err(Box::new(group_access_error_response(error)));
     }
     Ok(group)
 }
@@ -50,16 +50,16 @@ pub(super) async fn serving_source(
     db: &Database,
     group_id: i64,
     repository_key: Uuid,
-) -> Result<(StoredGitRepositorySource, StoredGitRepositoryGeneration), Response> {
+) -> Result<(StoredGitRepositorySource, StoredGitRepositoryGeneration), Box<Response>> {
     let source = match db.get_git_repository_source(group_id, repository_key).await {
         Ok(Some(source)) => source,
-        Ok(None) => return Err(repository_not_found()),
-        Err(error) => return Err(library_management_error_response(error)),
+        Ok(None) => return Err(Box::new(repository_not_found())),
+        Err(error) => return Err(Box::new(library_management_error_response(error))),
     };
     let generation = match serving_generation(db, &source).await {
         Ok(Some(generation)) => generation,
-        Ok(None) => return Err(generation_not_ready()),
-        Err(error) => return Err(library_management_error_response(error)),
+        Ok(None) => return Err(Box::new(generation_not_ready())),
+        Err(error) => return Err(Box::new(library_management_error_response(error))),
     };
     Ok((source, generation))
 }

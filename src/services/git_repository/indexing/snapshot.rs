@@ -7,7 +7,6 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use bytes::Bytes;
 use chrono::Utc;
-use uuid::Uuid;
 
 use crate::contracts::sources::{GitGenerationStatus, GitIndexProfile};
 use crate::db::{
@@ -20,8 +19,7 @@ use crate::domain_errors::DomainError;
 use super::super::classify::language_for_path;
 use super::super::code_text::{CodeText, chunk_code_text_for_language};
 use super::super::code_vectors::{
-    CodeVectorRequest, CodeVectorSink, QdrantCodeVectorSink, code_vector_target,
-    embed_and_write_generation,
+    CodeVectorSink, QdrantCodeVectorSink, code_vector_target, embed_and_write_generation,
 };
 use super::super::incremental::plan_incremental_snapshot;
 use super::super::limits::{GitIndexLimits, plan_snapshot_files};
@@ -44,13 +42,16 @@ pub(super) async fn attempt_snapshot(
     db: &Database,
     provider: &dyn GitSnapshotProvider,
     limits: &GitIndexLimits,
-    group_id: i64,
-    repository_key: Uuid,
-    code: Option<&CodeVectorRequest>,
-    force_rebuild: bool,
-    expected_config_revision: i64,
+    request: super::SnapshotIndexRequest<'_>,
     progress: &mut SnapshotProgress,
 ) -> Result<GitSnapshotIndexOutcome> {
+    let super::SnapshotIndexRequest {
+        group_id,
+        repository_key,
+        code,
+        force_rebuild,
+        expected_config_revision,
+    } = request;
     let source = db
         .get_git_repository_source(group_id, repository_key)
         .await?
@@ -141,14 +142,11 @@ pub(super) async fn attempt_snapshot(
     {
         let completed = db
             .complete_git_repository_noop(
-                group_id,
-                repository_key,
-                config_revision,
+                &source,
                 Some(pinned.as_str()),
                 pinned.as_str(),
                 GIT_INDEX_PIPELINE_VERSION,
                 &config_fingerprint,
-                &source.last_skip_summary,
             )
             .await?;
         if !completed {
