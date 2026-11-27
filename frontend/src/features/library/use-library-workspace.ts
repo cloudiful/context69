@@ -374,6 +374,14 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
 
   const detail: LibraryFileDetailResponse | null = detailQuery.data ?? null;
 
+  // The detail of the current selection is only settled when it succeeded and
+  // no refresh is running. Retained data of a running refresh or of a failed
+  // read is unverified: it may name a document set that no longer belongs to
+  // the file, so it never authorizes a complete read.
+  const detailSettled = detailQuery.status === "success" && detailQuery.fetchStatus === "idle";
+  const detailRefreshing = detailQuery.status === "success" && detailQuery.fetchStatus !== "idle";
+  const detailFailed = detailQuery.status === "error";
+
   // The preview target trusts only a settled, successful group/file detail.
   // Retained data from a failed refetch or an in-flight refresh must not
   // authorize Retry or Release, because the current detail state is unknown.
@@ -381,7 +389,6 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     if (!selectedFileId) {
       return null;
     }
-    const detailSettled = detailQuery.status === "success" && detailQuery.fetchStatus === "idle";
     const folderName = detail?.folder_path.split("/").filter(Boolean).at(-1);
     const fileState = detail && detailSettled
       ? {
@@ -412,8 +419,7 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     };
   }, [
     detail,
-    detailQuery.fetchStatus,
-    detailQuery.status,
+    detailSettled,
     folderId,
     releasingFileIds,
     reprocessingFileIds,
@@ -1658,7 +1664,10 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     deleteSelected,
     detail,
     detailError: detailQuery.error,
+    detailFailed,
     detailLoading: detailQuery.isLoading,
+    detailRefreshing,
+    detailSettled,
     entries,
     error: treeQuery.error ?? resourcesQuery.error,
     expandedKeys,
@@ -1677,6 +1686,11 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     previewFile,
     query,
     refresh,
+    reloadDetail: () => {
+      // A read-only retry of the file detail: it never mutates the file or
+      // its stored original.
+      void detailQuery.refetch();
+    },
     releaseFileSource,
     releasingFileIds,
     reprocessFile,

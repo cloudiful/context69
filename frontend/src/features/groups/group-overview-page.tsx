@@ -296,6 +296,10 @@ export function GroupOverviewPage() {
         open={!!selectedFileId}
         title={previewFile?.name ?? t("library.preview")}
         detail={library.detail}
+        selectedFileId={library.selectedFileId}
+        detailSettled={library.detailSettled}
+        detailRefreshing={library.detailRefreshing}
+        detailFailed={library.detailFailed}
         loading={library.detailLoading}
         error={library.detailError}
         canRetry={state.canManage && (previewFile?.canRetry ?? false)}
@@ -324,6 +328,7 @@ export function GroupOverviewPage() {
             library.releaseFileSource(previewFile.id, previewFile.name);
           }
         }}
+        onRetryDetail={library.reloadDetail}
       />
       <ScopedSearchDialog
         open={library.scopedSearch.open}
