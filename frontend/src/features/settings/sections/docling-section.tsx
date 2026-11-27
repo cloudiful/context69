@@ -25,7 +25,6 @@ import { SettingsGate } from "@/features/settings/settings-gate";
 import { useSettings } from "@/features/settings/settings-context";
 import { formatTimestamp } from "@/lib/format";
 import type { DoclingCleanupOutcome, DoclingCleanupStatus, DoclingCleanupTask } from "@/services/api/api-types";
-import type { DraftDoclingVlmMode } from "@/utils/settings";
 
 import { TestConnectionButton } from "./test-connection-button";
 
@@ -35,6 +34,7 @@ export function DoclingSection() {
   const { t } = useTranslation();
   const { page, doclingRemote } = useSettings();
   const draft = page.doclingDraft;
+  const { form } = page;
 
   const vlmModeInfo = {
     disabled: t("settings.docling.vlmModeInfoDisabled"),
@@ -61,60 +61,70 @@ export function DoclingSection() {
           }
         >
           <div className="grid max-w-3xl gap-3">
-            <TextField
-              id="docling-base-url"
-              layout="row"
-              controlClassName="max-w-xl"
-              type="url"
-              label={t("settings.docling.baseUrl")}
-              placeholder="http://127.0.0.1:5001"
-              value={draft.connection.base_url}
-              onChange={(value) => page.updateDoclingDraft((next) => {
-                next.connection.base_url = value;
-              })}
-            />
-            <NumberField
-              id="docling-timeout"
-              layout="row"
-              label={t("settings.docling.timeout")}
-              min={1}
-              value={draft.connection.timeout_secs}
-              onChange={(value) => page.updateDoclingDraft((next) => {
-                next.connection.timeout_secs = value;
-              })}
-            />
-            <NumberField
-              id="docling-poll-interval"
-              layout="row"
-              label={t("settings.docling.pollInterval")}
-              min={1}
-              value={draft.connection.poll_interval_secs}
-              onChange={(value) => page.updateDoclingDraft((next) => {
-                next.connection.poll_interval_secs = value;
-              })}
-            />
-            <NumberField
-              id="docling-task-timeout"
-              layout="row"
-              label={t("settings.docling.taskTimeout")}
-              min={1}
-              value={draft.connection.task_timeout_secs}
-              onChange={(value) => page.updateDoclingDraft((next) => {
-                next.connection.task_timeout_secs = value;
-              })}
-            />
-            <NumberField
-              id="docling-max-inflight"
-              layout="row"
-              label={t("settings.docling.maxInflight")}
-              helper={t("settings.docling.maxInflightHelper")}
-              min={1}
-              max={32}
-              value={draft.connection.max_inflight}
-              onChange={(value) => page.updateDoclingDraft((next) => {
-                next.connection.max_inflight = value;
-              })}
-            />
+            <form.Field name="doclingSettings.connection.base_url">
+              {(field) => (
+                <TextField
+                  id="docling-base-url"
+                  layout="row"
+                  controlClassName="max-w-xl"
+                  type="url"
+                  label={t("settings.docling.baseUrl")}
+                  placeholder="http://127.0.0.1:5001"
+                  value={field.state.value}
+                  onChange={(value) => field.handleChange(value)}
+                />
+              )}
+            </form.Field>
+            <form.Field name="doclingSettings.connection.timeout_secs">
+              {(field) => (
+                <NumberField
+                  id="docling-timeout"
+                  layout="row"
+                  label={t("settings.docling.timeout")}
+                  min={1}
+                  value={field.state.value}
+                  onChange={(value) => field.handleChange(value)}
+                />
+              )}
+            </form.Field>
+            <form.Field name="doclingSettings.connection.poll_interval_secs">
+              {(field) => (
+                <NumberField
+                  id="docling-poll-interval"
+                  layout="row"
+                  label={t("settings.docling.pollInterval")}
+                  min={1}
+                  value={field.state.value}
+                  onChange={(value) => field.handleChange(value)}
+                />
+              )}
+            </form.Field>
+            <form.Field name="doclingSettings.connection.task_timeout_secs">
+              {(field) => (
+                <NumberField
+                  id="docling-task-timeout"
+                  layout="row"
+                  label={t("settings.docling.taskTimeout")}
+                  min={1}
+                  value={field.state.value}
+                  onChange={(value) => field.handleChange(value)}
+                />
+              )}
+            </form.Field>
+            <form.Field name="doclingSettings.connection.max_inflight">
+              {(field) => (
+                <NumberField
+                  id="docling-max-inflight"
+                  layout="row"
+                  label={t("settings.docling.maxInflight")}
+                  helper={t("settings.docling.maxInflightHelper")}
+                  min={1}
+                  max={32}
+                  value={field.state.value}
+                  onChange={(value) => field.handleChange(value)}
+                />
+              )}
+            </form.Field>
           </div>
         </SettingsBlock>
 
@@ -123,29 +133,33 @@ export function DoclingSection() {
           compact
           title={t("settings.docling.ocrTitle")}
           actions={
-            <Switch
-              id="docling-ocr-enabled"
-              data-testid="docling-ocr-enabled"
-              aria-label={t("settings.docling.ocrEnabled")}
-              checked={draft.do_ocr}
-              onCheckedChange={(checked) => page.updateDoclingDraft((next) => {
-                next.do_ocr = checked;
-              })}
-            />
+            <form.Field name="doclingSettings.do_ocr">
+              {(field) => (
+                <Switch
+                  id="docling-ocr-enabled"
+                  data-testid="docling-ocr-enabled"
+                  aria-label={t("settings.docling.ocrEnabled")}
+                  checked={field.state.value}
+                  onCheckedChange={(checked) => field.handleChange(checked)}
+                />
+              )}
+            </form.Field>
           }
         >
           {draft.do_ocr ? (
             <div className="grid max-w-3xl gap-3">
-              <TextField
-                id="docling-ocr-preset"
-                layout="row"
-                label={t("settings.docling.ocrPreset")}
-                placeholder={t("settings.docling.ocrPresetPlaceholder")}
-                value={draft.ocr_preset}
-                onChange={(value) => page.updateDoclingDraft((next) => {
-                  next.ocr_preset = value;
-                })}
-              />
+              <form.Field name="doclingSettings.ocr_preset">
+                {(field) => (
+                  <TextField
+                    id="docling-ocr-preset"
+                    layout="row"
+                    label={t("settings.docling.ocrPreset")}
+                    placeholder={t("settings.docling.ocrPresetPlaceholder")}
+                    value={field.state.value}
+                    onChange={(value) => field.handleChange(value)}
+                  />
+                )}
+              </form.Field>
             </div>
           ) : null}
         </SettingsBlock>
@@ -156,24 +170,28 @@ export function DoclingSection() {
           title={t("settings.docling.enrichmentTitle")}
         >
           <div className="grid max-w-2xl gap-3">
-            <ToggleField
-              id="docling-code-enrichment-enabled"
-              testId="docling-code-enrichment-enabled"
-              label={t("settings.docling.codeEnrichmentEnabled")}
-              checked={draft.do_code_enrichment}
-              onCheckedChange={(checked) => page.updateDoclingDraft((next) => {
-                next.do_code_enrichment = checked;
-              })}
-            />
-            <ToggleField
-              id="docling-formula-enrichment-enabled"
-              testId="docling-formula-enrichment-enabled"
-              label={t("settings.docling.formulaEnrichmentEnabled")}
-              checked={draft.do_formula_enrichment}
-              onCheckedChange={(checked) => page.updateDoclingDraft((next) => {
-                next.do_formula_enrichment = checked;
-              })}
-            />
+            <form.Field name="doclingSettings.do_code_enrichment">
+              {(field) => (
+                <ToggleField
+                  id="docling-code-enrichment-enabled"
+                  testId="docling-code-enrichment-enabled"
+                  label={t("settings.docling.codeEnrichmentEnabled")}
+                  checked={field.state.value}
+                  onCheckedChange={(checked) => field.handleChange(checked)}
+                />
+              )}
+            </form.Field>
+            <form.Field name="doclingSettings.do_formula_enrichment">
+              {(field) => (
+                <ToggleField
+                  id="docling-formula-enrichment-enabled"
+                  testId="docling-formula-enrichment-enabled"
+                  label={t("settings.docling.formulaEnrichmentEnabled")}
+                  checked={field.state.value}
+                  onCheckedChange={(checked) => field.handleChange(checked)}
+                />
+              )}
+            </form.Field>
             <p className="text-xs text-muted-foreground">
               {t("settings.docling.enrichmentHelper")}
             </p>
@@ -185,15 +203,17 @@ export function DoclingSection() {
           compact
           title={t("settings.docling.vlmTitle")}
           actions={
-            <Switch
-              id="docling-picture-description-enabled"
-              data-testid="docling-picture-description-enabled"
-              aria-label={t("settings.docling.pictureDescriptionEnabled")}
-              checked={draft.do_picture_description}
-              onCheckedChange={(checked) => page.updateDoclingDraft((next) => {
-                next.do_picture_description = checked;
-              })}
-            />
+            <form.Field name="doclingSettings.do_picture_description">
+              {(field) => (
+                <Switch
+                  id="docling-picture-description-enabled"
+                  data-testid="docling-picture-description-enabled"
+                  aria-label={t("settings.docling.pictureDescriptionEnabled")}
+                  checked={field.state.value}
+                  onCheckedChange={(checked) => field.handleChange(checked)}
+                />
+              )}
+            </form.Field>
           }
         >
           {draft.do_picture_description ? (
@@ -205,21 +225,23 @@ export function DoclingSection() {
               >
                 <div className="flex items-center gap-1">
                   <div className="min-w-0 flex-1">
-                    <Select
-                      value={draft.vlm_mode}
-                      onValueChange={(value) => page.updateDoclingDraft((next) => {
-                        next.vlm_mode = value as DraftDoclingVlmMode;
-                      })}
-                    >
-                      <SelectTrigger id="docling-vlm-mode" aria-label={t("settings.docling.vlmModeLabel")}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="disabled">{t("settings.docling.vlmModeDisabled")}</SelectItem>
-                        <SelectItem value="preset">{t("settings.docling.vlmModePreset")}</SelectItem>
-                        <SelectItem value="custom">{t("settings.docling.vlmModeCustom")}</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <form.Field name="doclingSettings.vlm_mode">
+                      {(field) => (
+                        <Select
+                          value={field.state.value}
+                          onValueChange={(value) => field.handleChange(value as typeof field.state.value)}
+                        >
+                          <SelectTrigger id="docling-vlm-mode" aria-label={t("settings.docling.vlmModeLabel")}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="disabled">{t("settings.docling.vlmModeDisabled")}</SelectItem>
+                            <SelectItem value="preset">{t("settings.docling.vlmModePreset")}</SelectItem>
+                            <SelectItem value="custom">{t("settings.docling.vlmModeCustom")}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </form.Field>
                   </div>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -240,75 +262,87 @@ export function DoclingSection() {
 
               {draft.vlm_mode === "preset" ? (
                 <div className="grid max-w-3xl gap-3">
-                  <TextField
-                    id="docling-picture-description-preset"
-                    layout="row"
-                    label={t("settings.docling.pictureDescriptionPreset")}
-                    placeholder={t("settings.docling.pictureDescriptionPresetPlaceholder")}
-                    value={draft.vlm.picture_description_preset}
-                    onChange={(value) => page.updateDoclingDraft((next) => {
-                      next.vlm.picture_description_preset = value;
-                    })}
-                  />
+                  <form.Field name="doclingSettings.vlm.picture_description_preset">
+                    {(field) => (
+                      <TextField
+                        id="docling-picture-description-preset"
+                        layout="row"
+                        label={t("settings.docling.pictureDescriptionPreset")}
+                        placeholder={t("settings.docling.pictureDescriptionPresetPlaceholder")}
+                        value={field.state.value}
+                        onChange={(value) => field.handleChange(value)}
+                      />
+                    )}
+                  </form.Field>
                 </div>
               ) : null}
 
               {draft.vlm_mode === "custom" ? (
                 <div className="grid max-w-3xl gap-3">
-                  <TextField
-                    id="docling-openai-base-url"
-                    type="url"
-                    layout="row"
-                    controlClassName="max-w-xl"
-                    label={t("settings.docling.openAiBaseUrl")}
-                    placeholder="https://openrouter.ai/api/v1"
-                    value={draft.vlm.openai_base_url}
-                    onChange={(value) => page.updateDoclingDraft((next) => {
-                      next.vlm.openai_base_url = value;
-                    })}
-                  />
-                  <TextField
-                    id="docling-api-key"
-                    type="password"
-                    autoComplete="new-password"
-                    layout="row"
-                    label={t("settings.docling.apiKey")}
-                    placeholder="sk-..."
-                    value={draft.vlm.api_key}
-                    onChange={(value) => page.updateDoclingDraft((next) => {
-                      next.vlm.api_key = value;
-                    })}
-                  />
-                  <TextField
-                    id="docling-vlm-pipeline-model"
-                    layout="row"
-                    label={t("settings.docling.vlmPipelineModel")}
-                    placeholder="gemini-3-flash"
-                    value={draft.vlm.vlm_pipeline_model}
-                    onChange={(value) => page.updateDoclingDraft((next) => {
-                      next.vlm.vlm_pipeline_model = value;
-                    })}
-                  />
-                  <TextField
-                    id="docling-picture-description-model"
-                    layout="row"
-                    label={t("settings.docling.pictureDescriptionModel")}
-                    placeholder="gpt-4o-mini"
-                    value={draft.vlm.picture_description_model}
-                    onChange={(value) => page.updateDoclingDraft((next) => {
-                      next.vlm.picture_description_model = value;
-                    })}
-                  />
-                  <TextField
-                    id="docling-code-formula-model"
-                    layout="row"
-                    label={t("settings.docling.codeFormulaModel")}
-                    placeholder="gpt-4o-mini"
-                    value={draft.vlm.code_formula_model}
-                    onChange={(value) => page.updateDoclingDraft((next) => {
-                      next.vlm.code_formula_model = value;
-                    })}
-                  />
+                  <form.Field name="doclingSettings.vlm.openai_base_url">
+                    {(field) => (
+                      <TextField
+                        id="docling-openai-base-url"
+                        type="url"
+                        layout="row"
+                        controlClassName="max-w-xl"
+                        label={t("settings.docling.openAiBaseUrl")}
+                        placeholder="https://openrouter.ai/api/v1"
+                        value={field.state.value}
+                        onChange={(value) => field.handleChange(value)}
+                      />
+                    )}
+                  </form.Field>
+                  <form.Field name="doclingSettings.vlm.api_key">
+                    {(field) => (
+                      <TextField
+                        id="docling-api-key"
+                        type="password"
+                        autoComplete="new-password"
+                        layout="row"
+                        label={t("settings.docling.apiKey")}
+                        placeholder="sk-..."
+                        value={field.state.value}
+                        onChange={(value) => field.handleChange(value)}
+                      />
+                    )}
+                  </form.Field>
+                  <form.Field name="doclingSettings.vlm.vlm_pipeline_model">
+                    {(field) => (
+                      <TextField
+                        id="docling-vlm-pipeline-model"
+                        layout="row"
+                        label={t("settings.docling.vlmPipelineModel")}
+                        placeholder="gemini-3-flash"
+                        value={field.state.value}
+                        onChange={(value) => field.handleChange(value)}
+                      />
+                    )}
+                  </form.Field>
+                  <form.Field name="doclingSettings.vlm.picture_description_model">
+                    {(field) => (
+                      <TextField
+                        id="docling-picture-description-model"
+                        layout="row"
+                        label={t("settings.docling.pictureDescriptionModel")}
+                        placeholder="gpt-4o-mini"
+                        value={field.state.value}
+                        onChange={(value) => field.handleChange(value)}
+                      />
+                    )}
+                  </form.Field>
+                  <form.Field name="doclingSettings.vlm.code_formula_model">
+                    {(field) => (
+                      <TextField
+                        id="docling-code-formula-model"
+                        layout="row"
+                        label={t("settings.docling.codeFormulaModel")}
+                        placeholder="gpt-4o-mini"
+                        value={field.state.value}
+                        onChange={(value) => field.handleChange(value)}
+                      />
+                    )}
+                  </form.Field>
                 </div>
               ) : null}
             </>
@@ -714,9 +748,8 @@ function CleanupBlock() {
             <TableHeader>
               <TableRow>
                 <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.taskId")} /></TableHead>
+                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.taskType")} /></TableHead>
                 <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.taskStatus")} /></TableHead>
-                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.outcome")} /></TableHead>
-                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.reason")} /></TableHead>
                 <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.createdAt")} /></TableHead>
                 <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.updatedAt")} /></TableHead>
                 <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.finishedAt")} /></TableHead>
