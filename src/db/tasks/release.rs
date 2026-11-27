@@ -23,8 +23,14 @@ impl Database {
         }
         let queue = self.execution_queue().await?;
         let native = match queue
-            .release_in(&mut tx, &execution.attempt, worker_id())
-            .await
+            .release_in(
+                &mut tx,
+                std::slice::from_ref(&execution.attempt),
+                worker_id(),
+            )
+            .await?
+            .pop()
+            .expect("one attempt outcome")
         {
             Ok(native) => native,
             Err(

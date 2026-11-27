@@ -150,69 +150,73 @@ impl Database {
         )
         .fetch_all(&mut **tx)
         .await?;
-        let mut claimed = Vec::with_capacity(candidates.len());
-        for candidate in candidates {
-            if let Some(item) = self.claim_candidate(tx, &candidate).await? {
-                claimed.push(item);
+        let mut eligible = Vec::with_capacity(candidates.len());
+        for candidate in &candidates {
+            // Re-read the gate after locking the item, before touching any segment.
+            if let Some(segment) = candidate.execution_task_id
+                && super::pause_control::current_item(tx, candidate.task_id)
+                    .await?
+                    .is_some_and(|gate| gate.task_pause_state == "unpaused")
+            {
+                eligible.push((candidate, TaskId::from_uuid(segment)));
+            }
+        }
+        let queue = self.execution_queue().await?;
+        let worker_id = execution::worker_id();
+        let mut claimed = Vec::with_capacity(eligible.len());
+        for chunk in eligible.chunks(cloudiful_tasks::MAX_TASK_COLLECTION_SIZE) {
+            let ids: Vec<_> = chunk.iter().map(|(_, id)| *id).collect();
+            let request =
+                cloudiful_tasks::ClaimRequest::new(worker_id, ids.len() as u32).with_task_ids(&ids);
+            let mut claims: std::collections::HashMap<_, _> = queue
+                .claim_in(&mut *tx, &request)
+                .await?
+                .into_iter()
+                .map(|claim| (claim.attempt().task_id(), claim))
+                .collect();
+            let payloads: Vec<_> = chunk
+                .iter()
+                .filter(|(_, id)| !claims.contains_key(id))
+                .map(|(candidate, _)| {
+                    SegmentPayload::new(
+                        candidate.id,
+                        candidate.task_id,
+                        candidate.execution_generation + 1,
+                    )
+                })
+                .collect();
+            let fresh_ids = execution::produce_segments(queue, tx, &payloads).await?;
+            let mut fresh_segments = fresh_ids.iter();
+            let mut fresh_claims = std::collections::HashMap::new();
+            if !fresh_ids.is_empty() {
+                let request = cloudiful_tasks::ClaimRequest::new(worker_id, fresh_ids.len() as u32)
+                    .with_task_ids(&fresh_ids);
+                fresh_claims.extend(
+                    queue
+                        .claim_in(&mut *tx, &request)
+                        .await?
+                        .into_iter()
+                        .map(|claim| (claim.attempt().task_id(), claim)),
+                );
+            }
+            for &(candidate, id) in chunk {
+                let (claim, generation) = if let Some(claim) = claims.remove(&id) {
+                    (claim, candidate.execution_generation)
+                } else {
+                    let fresh_id = fresh_segments
+                        .next()
+                        .ok_or_else(|| anyhow!("missing fresh segment"))?;
+                    let claim = fresh_claims.remove(fresh_id).ok_or_else(|| {
+                        anyhow!("the fresh segment of the item could not be claimed")
+                    })?;
+                    (claim, candidate.execution_generation + 1)
+                };
+                if let Some(item) = self.mirror_claim(tx, candidate, &claim, generation).await? {
+                    claimed.push(item);
+                }
             }
         }
         Ok(claimed)
-    }
-
-    /// Claims one candidate item through the library and mirrors the claim.
-    async fn claim_candidate(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        candidate: &ClaimCandidate,
-    ) -> Result<Option<ClaimedItem>> {
-        // Re-read the parent pause gate after the candidate item lock and
-        // before any segment is claimed or produced. The selection statement's
-        // snapshot may predate a pause that committed after it started, and
-        // this plain read holds no task row lock, so the item -> segment ->
-        // task order is preserved.
-        let Some(gate) = super::pause_control::current_item(tx, candidate.task_id).await? else {
-            return Ok(None);
-        };
-        if gate.task_pause_state != "unpaused" {
-            return Ok(None);
-        }
-        let Some(current_segment) = candidate.execution_task_id else {
-            // An item without a library segment was never adopted. The cutover
-            // hands those over explicitly, so the dispatcher leaves them alone.
-            return Ok(None);
-        };
-        let queue = self.execution_queue().await?;
-        let worker_id = execution::worker_id();
-
-        let (claim, generation) = match queue
-            .claim_by_id_in(&mut *tx, TaskId::from_uuid(current_segment), worker_id)
-            .await?
-        {
-            Some(claim) => (claim, candidate.execution_generation),
-            None => {
-                // The segment of the item is not claimable: it runs elsewhere or
-                // it already ended. A parked item that became eligible again
-                // gets a fresh segment in the next generation; the old segment
-                // and its attempts stay untouched.
-                let generation = candidate.execution_generation + 1;
-                let segment = execution::produce_segment(
-                    queue,
-                    tx,
-                    SegmentPayload::new(candidate.id, candidate.task_id, generation),
-                )
-                .await?;
-                let claim = queue
-                    .claim_by_id_in(&mut *tx, segment, worker_id)
-                    .await?
-                    .ok_or_else(|| anyhow!("the fresh segment of the item could not be claimed"))?;
-                (claim, generation)
-            }
-        };
-
-        let Some(item) = self.mirror_claim(tx, candidate, &claim, generation).await? else {
-            return Ok(None);
-        };
-        Ok(Some(item))
     }
 
     /// Mirrors one library claim into the domain.

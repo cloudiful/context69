@@ -2194,7 +2194,14 @@ async fn complete_rebuild_transaction(
     // item and parent succeed, and the segment still reports the same success
     // instead of waiting for a worker that may never run again.
     let queue = db.execution_queue().await?;
-    queue.complete_in(&mut tx, &execution.attempt, None).await?;
+    queue
+        .complete_in(
+            &mut tx,
+            &[cloudiful_tasks::Completion::new(&execution.attempt, None)],
+        )
+        .await?
+        .pop()
+        .expect("one attempt outcome")?;
     // Activation is the completion linearization point: the owner item is
     // finished in the same owner-guarded transaction. A cancellation that
     // waited for the item fence then sees the completed item and reports too

@@ -59,16 +59,15 @@ impl Database {
         .await?;
 
         let queue = self.execution_queue().await?;
-        let mut item_ids = Vec::with_capacity(items.len());
-        for (ordinal, item) in items.iter().enumerate() {
-            let item_id = Uuid::new_v4();
-            item_ids.push(item_id);
-            let segment = super::execution::produce_segment(
-                queue,
-                transaction,
-                super::execution::SegmentPayload::new(item_id, task_id, FIRST_GENERATION),
-            )
-            .await?;
+        let item_ids: Vec<_> = items.iter().map(|_| Uuid::new_v4()).collect();
+        let payloads: Vec<_> = item_ids
+            .iter()
+            .map(|&id| super::execution::SegmentPayload::new(id, task_id, FIRST_GENERATION))
+            .collect();
+        let segments = super::execution::produce_segments(queue, transaction, &payloads).await?;
+        for (ordinal, ((item, &item_id), segment)) in
+            items.iter().zip(&item_ids).zip(segments).enumerate()
+        {
             sqlx::query_file!(
                 "src/sql/db/tasks/insert_item.sql",
                 item_id,
