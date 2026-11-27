@@ -60,12 +60,12 @@ impl DocumentResultProvenance {
             ("run_id", self.run_id.as_deref()),
             ("producer_config_hash", self.producer_config_hash.as_deref()),
         ] {
-            if let Some(value) = value {
-                if value.chars().count() > DOCUMENT_RESULT_PROVENANCE_MAX_CHARS {
-                    return Err(anyhow::anyhow!(
-                        "provenance.{field} must be at most {DOCUMENT_RESULT_PROVENANCE_MAX_CHARS} characters"
-                    ));
-                }
+            if let Some(value) = value
+                && value.chars().count() > DOCUMENT_RESULT_PROVENANCE_MAX_CHARS
+            {
+                return Err(anyhow::anyhow!(
+                    "provenance.{field} must be at most {DOCUMENT_RESULT_PROVENANCE_MAX_CHARS} characters"
+                ));
             }
         }
         Ok(())
@@ -217,10 +217,10 @@ impl ListDocumentResultsQuery {
         if let Some(result_kind) = &self.result_kind {
             validate_identifier("result_kind", result_kind, DOCUMENT_RESULT_KIND_MAX_CHARS)?;
         }
-        if let Some(after_id) = self.after_id {
-            if after_id < 0 {
-                return Err(anyhow::anyhow!("after_id must not be negative"));
-            }
+        if let Some(after_id) = self.after_id
+            && after_id < 0
+        {
+            return Err(anyhow::anyhow!("after_id must not be negative"));
         }
         if self.latest_only && !self.current_only {
             return Err(anyhow::anyhow!("latest_only requires current_only=true"));

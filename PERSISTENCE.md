@@ -96,10 +96,11 @@ queue records of the tasks in the same transaction as the domain rows.
   of every item, the segment of every historical attempt and the segment of
   every library ingest run of the locked tasks, as one distinct set.
 - The native rows are deleted through the queue of the `cloudiful-tasks`
-  library (`Queue::delete_in`), which locks the native task, reads its status
-  under that lock and refuses a task that is still active. A refusal is a
-  conflict of the whole request: the transaction is rolled back, and the path
-  never requests or forces a cancellation.
+  library (`Queue::delete_many_in`) in sorted, distinct chunks of at most 512
+  identifiers. Each chunk locks its existing in-scope rows, ignores missing
+  identifiers, and refuses active tasks. A refusal rolls back the whole
+  request, including earlier chunks; the path never requests or forces a
+  cancellation.
 - The order of the path is item -> task -> native. The items are locked first
   (`src/sql/db/tasks/lock_purge_task_items.sql`), the eligible task rows are
   locked and re-checked next (`src/sql/db/tasks/lock_trashed_tasks.sql`,
